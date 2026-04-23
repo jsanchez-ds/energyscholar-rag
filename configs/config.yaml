@@ -1,0 +1,71 @@
+# ═══════════════════════════════════════════════════════════════════════════
+# EnergyScholar — main configuration
+# ═══════════════════════════════════════════════════════════════════════════
+
+project:
+  name: energyscholar
+  version: 0.1.0
+
+ingestion:
+  # arXiv query — use broad energy-forecasting terms
+  arxiv_queries:
+    - "electricity demand forecasting"
+    - "short-term load forecasting"
+    - "renewable energy forecasting"
+    - "probabilistic load forecasting"
+    - "transformer time series energy"
+  max_papers_per_query: 8       # 5 queries × 8 = ~30-40 unique papers
+  categories: ["stat.ML", "cs.LG", "eess.SY", "cs.CE"]
+
+chunking:
+  chunk_size: 900               # tokens (approx via whitespace heuristic)
+  chunk_overlap: 150
+  # Drop very short chunks (abstracts that are already in metadata, etc.)
+  min_chunk_tokens: 100
+
+embedding:
+  model: sentence-transformers/all-MiniLM-L6-v2
+  dimension: 384                # must match the model
+  batch_size: 32
+  normalize: true               # for cosine sim
+
+retrieval:
+  top_k_vector: 20              # candidates from dense search
+  top_k_bm25: 20                # candidates from keyword search
+  top_k_final: 5                # after rerank
+  rerank_model: cross-encoder/ms-marco-MiniLM-L-6-v2
+  rrf_k: 60                     # reciprocal rank fusion constant
+
+generation:
+  # Per-provider defaults (overridden by LLM_MODEL_OVERRIDE env var)
+  providers:
+    groq:
+      model: llama-3.3-70b-versatile
+      temperature: 0.2
+      max_tokens: 1024
+    anthropic:
+      model: claude-3-5-sonnet-20241022
+      temperature: 0.2
+      max_tokens: 1024
+    openai:
+      model: gpt-4o-mini
+      temperature: 0.2
+      max_tokens: 1024
+    openrouter:
+      model: meta-llama/llama-3.3-70b-instruct:free
+      temperature: 0.2
+      max_tokens: 1024
+
+evaluation:
+  metrics: [faithfulness, context_precision, context_recall, answer_relevancy]
+  golden_set_path: evaluation/golden_set/qa.jsonl
+  # Thresholds below which CI should fail
+  thresholds:
+    faithfulness: 0.75
+    context_precision: 0.70
+    context_recall: 0.70
+    answer_relevancy: 0.75
+
+serving:
+  host: 0.0.0.0
+  port: 8000

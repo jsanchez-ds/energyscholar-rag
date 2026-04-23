@@ -1,0 +1,57 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.Python
+.venv/
+venv/
+build/
+dist/
+*.egg-info/
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+.mypy_cache/
+.ruff_cache/
+
+# Env / secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# Data — papers/cache are large and regenerable
+data/papers/*
+data/cache/*
+!data/papers/.gitkeep
+!data/cache/.gitkeep
+
+# Qdrant storage (docker bind)
+qdrant_storage/
+
+# Langfuse local
+langfuse_postgres_data/
+
+# Evaluation artifacts
+evaluation/reports/
+
+# Models (sentence-transformers cache)
+models--*
+.cache/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+logs/
+
+# HF Spaces artifacts
+spaces_build/

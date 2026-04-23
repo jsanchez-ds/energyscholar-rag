@@ -1,0 +1,59 @@
+name: CI
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+
+jobs:
+  lint-test:
+    name: Lint, type-check, test (no integration)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install deps (CPU torch)
+        run: |
+          python -m pip install --upgrade pip
+          pip install --index-url https://download.pytorch.org/whl/cpu torch==2.4.1
+          pip install -r requirements.txt
+
+      - name: Ruff
+        run: ruff check src tests
+
+      - name: Black (check only)
+        run: black --check src tests
+
+      - name: Pytest (unit only, no integration / RAGAS)
+        env:
+          GROQ_API_KEY: dummy-for-tests
+          LLM_PROVIDER: groq
+        run: pytest tests/ -v -m "not integration and not ragas" --cov=src --cov-report=term-missing
+
+  ragas-eval:
+    name: RAGAS gated eval (only on PR label 'run-ragas')
+    runs-on: ubuntu-latest
+    needs: lint-test
+    if: contains(github.event.pull_request.labels.*.name, 'run-ragas')
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - run: |
+          pip install --index-url https://download.pytorch.org/whl/cpu torch==2.4.1
+          pip install -r requirements.txt
+      - name: Run RAGAS (requires pre-built index — placeholder)
+        env:
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          LLM_PROVIDER: groq
+        run: |
+          echo "Skipping in CI until we wire up a seeded Qdrant + papers volume."
+          # python -m src.eval.run_ragas

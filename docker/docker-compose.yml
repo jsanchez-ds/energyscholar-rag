@@ -1,0 +1,38 @@
+version: "3.9"
+
+services:
+  qdrant:
+    image: qdrant/qdrant:v1.12.4
+    container_name: energyscholar-qdrant
+    ports:
+      - "6333:6333"        # REST
+      - "6334:6334"        # gRPC
+    volumes:
+      - ../qdrant_storage:/qdrant/storage
+    restart: unless-stopped
+
+  # Langfuse self-hosted (optional — comment out if you use Langfuse Cloud)
+  langfuse-db:
+    image: postgres:16-alpine
+    container_name: energyscholar-langfuse-db
+    environment:
+      POSTGRES_USER: langfuse
+      POSTGRES_PASSWORD: langfuse
+      POSTGRES_DB: langfuse
+    volumes:
+      - ../langfuse_postgres_data:/var/lib/postgresql/data
+    restart: unless-stopped
+
+  langfuse:
+    image: ghcr.io/langfuse/langfuse:2
+    container_name: energyscholar-langfuse
+    depends_on:
+      - langfuse-db
+    environment:
+      DATABASE_URL: postgresql://langfuse:langfuse@langfuse-db:5432/langfuse
+      NEXTAUTH_SECRET: change-me-please
+      NEXTAUTH_URL: http://localhost:3000
+      SALT: change-me-too
+    ports:
+      - "3000:3000"
+    restart: unless-stopped
