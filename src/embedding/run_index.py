@@ -11,7 +11,6 @@ from __future__ import annotations
 import uuid
 from pathlib import Path
 
-from qdrant_client import QdrantClient
 from qdrant_client.models import Distance, PointStruct, VectorParams
 
 from src.embedding.embedder import Embedder
@@ -19,11 +18,12 @@ from src.ingestion.arxiv_client import load_metadata
 from src.ingestion.pdf_parser import Chunk, chunk_paper
 from src.utils.config import get_env, load_yaml_config
 from src.utils.logging import configure_logging, get_logger
+from src.utils.qdrant import get_qdrant
 
 log = get_logger(__name__)
 
 
-def _ensure_collection(client: QdrantClient, name: str, dim: int) -> None:
+def _ensure_collection(client, name: str, dim: int) -> None:
     existing = {c.name for c in client.get_collections().collections}
     if name in existing:
         info = client.get_collection(name)
@@ -85,7 +85,7 @@ def run() -> None:
     vecs = embedder.embed([c.text for c in all_chunks], normalize=cfg["embedding"]["normalize"])
     log.info("index.embedded", n=len(vecs), dim=vecs.shape[1])
 
-    client = QdrantClient(url=env.qdrant_url)
+    client = get_qdrant()
     _ensure_collection(client, env.qdrant_collection, dim=vecs.shape[1])
 
     points = [

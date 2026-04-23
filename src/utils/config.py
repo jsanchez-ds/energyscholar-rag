@@ -25,7 +25,14 @@ class EnvSettings(BaseSettings):
     embed_model: str = "sentence-transformers/all-MiniLM-L6-v2"
     rerank_model: str = "cross-encoder/ms-marco-MiniLM-L-6-v2"
 
+    # Qdrant has two modes:
+    #   - "embedded" (default): runs in-process, persists to `qdrant_path`.
+    #     Zero external deps — ideal for local dev, CI and HuggingFace Spaces.
+    #   - "server": connects to a running Qdrant instance at `qdrant_url`.
+    #     Use this in prod against Qdrant Cloud or a Docker container.
+    qdrant_mode: Literal["embedded", "server"] = "embedded"
     qdrant_url: str = "http://localhost:6333"
+    qdrant_path: str = "./qdrant_storage"
     qdrant_collection: str = "energy_papers"
 
     langfuse_public_key: str = ""

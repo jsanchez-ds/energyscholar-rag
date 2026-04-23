@@ -12,13 +12,13 @@ from dataclasses import dataclass
 from functools import lru_cache
 
 import numpy as np
-from qdrant_client import QdrantClient
 from qdrant_client.http.models import ScoredPoint
 from rank_bm25 import BM25Okapi
 
 from src.embedding.embedder import Embedder
 from src.utils.config import get_env
 from src.utils.logging import get_logger
+from src.utils.qdrant import get_qdrant
 
 log = get_logger(__name__)
 
@@ -46,11 +46,10 @@ class HybridRetriever:
         self,
         embedder: Embedder | None = None,
         collection: str | None = None,
-        url: str | None = None,
     ) -> None:
         env = get_env()
         self.collection = collection or env.qdrant_collection
-        self.qdrant = QdrantClient(url=url or env.qdrant_url)
+        self.qdrant = get_qdrant()
         self.embedder = embedder or Embedder()
 
     # ── Public API ─────────────────────────────────────────────────────────
