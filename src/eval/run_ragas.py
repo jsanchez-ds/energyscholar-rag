@@ -25,7 +25,7 @@ log = get_logger(__name__)
 console = Console()
 
 
-def _run_pipeline_for_ragas() -> tuple[list[str], list[str], list[list[str]], list[str]]:
+def _run_pipeline_for_ragas(limit: int | None = None) -> tuple[list[str], list[str], list[list[str]], list[str]]:
     """Run every question in the golden set through the RAG pipeline.
 
     Returns 4 aligned lists in the shape RAGAS expects:
@@ -36,6 +36,8 @@ def _run_pipeline_for_ragas() -> tuple[list[str], list[str], list[list[str]], li
     qs = load_golden(golden_path)
     if not qs:
         raise RuntimeError(f"Golden set at {golden_path} is empty.")
+    if limit is not None:
+        qs = qs[:limit]
 
     questions: list[str] = []
     answers: list[str] = []
@@ -68,21 +70,61 @@ def _run_pipeline_for_ragas() -> tuple[list[str], list[str], list[list[str]], li
     return questions, answers, contexts, ground_truths
 
 
-def run() -> None:
+def run(limit: int | None = None) -> None:
     cfg = load_yaml_config()
     env = get_env()
 
     # Lazy imports — ragas pulls in heavy deps
     from datasets import Dataset
+    from langchain_huggingface import HuggingFaceEmbeddings
+    from langchain_openai import ChatOpenAI
     from ragas import evaluate
+    from ragas.embeddings import LangchainEmbeddingsWrapper
+    from ragas.llms import LangchainLLMWrapper
     from ragas.metrics import (
         answer_relevancy,
         context_precision,
         context_recall,
         faithfulness,
     )
+    from ragas.run_config import RunConfig
 
-    questions, answers, contexts, ground_truths = _run_pipeline_for_ragas()
+    # Point RAGAS at the same provider we use for generation so the user
+    # only has to set one API key. For the JUDGE LLM specifically we use a
+    # smaller/faster variant of the model (more headroom on free-tier rate
+    # limits), since judging is less demanding than answering.
+    base_url = {
+        "groq": "https://api.groq.com/openai/v1",
+        "openai": "https://api.openai.com/v1",
+        "openrouter": "https://openrouter.ai/api/v1",
+    }.get(env.llm_provider)
+
+    # Judge model — 70B gives higher TPM headroom on Groq free tier (12K vs 6K)
+    # which matters because faithfulness + context_recall send the full context.
+    judge_model = {
+        "groq": "llama-3.3-70b-versatile",
+        "openai": "gpt-4o-mini",
+        "openrouter": "meta-llama/llama-3.3-70b-instruct:free",
+    }.get(env.llm_provider, env.llm_model_override)
+
+    judge_llm = LangchainLLMWrapper(
+        ChatOpenAI(
+            model=judge_model,
+            api_key=env.active_api_key,
+            base_url=base_url,
+            temperature=0.0,
+            max_retries=5,
+            request_timeout=60,
+        )
+    )
+
+    # Local HF embeddings — Groq has no embeddings endpoint, so we never
+    # want the RAGAS default OpenAI embedder.
+    judge_embeddings = LangchainEmbeddingsWrapper(
+        HuggingFaceEmbeddings(model_name=env.embed_model)
+    )
+
+    questions, answers, contexts, ground_truths = _run_pipeline_for_ragas(limit=limit)
 
     ds = Dataset.from_dict(
         {
@@ -95,13 +137,31 @@ def run() -> None:
 
     metrics = [faithfulness, context_precision, context_recall, answer_relevancy]
 
-    log.info("ragas.evaluate.start", n=len(questions))
-    # RAGAS uses its own LLM for judgement — point it at the same provider
-    # we use for generation so you don't need a separate eval key.
-    result = evaluate(ds, metrics=metrics)
+    # Serial, generous timeouts — trades speed for free-tier rate-limit safety.
+    rc = RunConfig(max_workers=1, timeout=180, max_retries=5, max_wait=60)
+
+    log.info("ragas.evaluate.start", n=len(questions), judge=judge_model)
+    result = evaluate(
+        ds,
+        metrics=metrics,
+        llm=judge_llm,
+        embeddings=judge_embeddings,
+        show_progress=False,
+        run_config=rc,
+    )
+
+    # Extract aggregate scores via pandas — robust across ragas minor versions.
+    df = result.to_pandas()
+    metric_names = ["faithfulness", "context_precision", "context_recall", "answer_relevancy"]
+    agg: dict[str, float] = {}
+    for name in metric_names:
+        if name in df.columns:
+            agg[name] = float(df[name].mean(skipna=True))
+        else:
+            agg[name] = float("nan")
 
     # Pretty print
-    table = Table(title=f"RAGAS · {env.llm_provider}/{env.llm_model_override or 'default'} · n={len(questions)}")
+    table = Table(title=f"RAGAS · generator={env.llm_provider}/{env.llm_model_override or 'default'} · judge={judge_model} · n={len(questions)}")
     table.add_column("Metric", style="cyan")
     table.add_column("Value", style="bold")
     table.add_column("Threshold")
@@ -109,16 +169,16 @@ def run() -> None:
 
     thresholds = cfg["evaluation"]["thresholds"]
     any_fail = False
-    for name in ["faithfulness", "context_precision", "context_recall", "answer_relevancy"]:
-        value = float(result[name]) if name in result else float("nan")
+    for name in metric_names:
+        value = agg[name]
         thr = thresholds.get(name, 0.0)
-        passed = value >= thr
+        passed = (value == value) and value >= thr  # NaN-safe
         any_fail = any_fail or not passed
         table.add_row(
             name,
-            f"{value:.3f}",
+            f"{value:.3f}" if value == value else "nan",
             f"{thr:.2f}",
-            "✅" if passed else "❌",
+            "OK" if passed else "FAIL",
         )
 
     console.print(table)
@@ -131,8 +191,9 @@ def run() -> None:
     payload = {
         "timestamp_utc": ts,
         "provider": env.llm_provider,
+        "judge_model": judge_model,
         "n_questions": len(questions),
-        "metrics": {k: float(result[k]) for k in ["faithfulness", "context_precision", "context_recall", "answer_relevancy"] if k in result},
+        "metrics": agg,
         "thresholds": thresholds,
     }
     report_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
@@ -144,5 +205,11 @@ def run() -> None:
 
 
 if __name__ == "__main__":
+    import argparse
+
     configure_logging(level=get_env().log_level)
-    run()
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--limit", type=int, default=None,
+                    help="Evaluate only the first N questions (useful for rate-limited free tiers)")
+    args = ap.parse_args()
+    run(limit=args.limit)
