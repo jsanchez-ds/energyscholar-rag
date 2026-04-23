@@ -49,25 +49,44 @@ with col2:
 if submit and question.strip():
     with st.spinner("Searching papers + generating answer..."):
         try:
-            resp = httpx.post(f"{API_URL}/query", json={"question": question}, timeout=120).json()
+            r = httpx.post(f"{API_URL}/query", json={"question": question}, timeout=180)
         except Exception as exc:
-            st.error(f"Call failed: {exc}")
+            st.error(f"Could not reach the API: {exc}")
             st.stop()
 
+    # Error-response path: the API returns JSON like {"detail": "..."} on 4xx/5xx
+    if r.status_code >= 400:
+        st.error(f"API returned {r.status_code}")
+        try:
+            detail = r.json().get("detail", r.text)
+        except Exception:
+            detail = r.text
+        st.code(str(detail)[:2000])
+        if "rate" in str(detail).lower() or "429" in str(detail):
+            st.info(
+                "This looks like an LLM-provider rate limit (Groq free tier caps "
+                "at ~30 req/min and 6–12K tokens/min). Wait ~1 minute and retry, "
+                "or switch `LLM_PROVIDER` in your `.env` to a provider with more "
+                "headroom (OpenAI / OpenRouter / Groq Dev tier)."
+            )
+        st.stop()
+
+    resp = r.json()
+
     st.subheader("Answer")
-    st.write(resp["answer"])
+    st.write(resp.get("answer", "_(no answer in response)_"))
 
     st.subheader("Citations")
-    for c in resp["citations"]:
+    for c in resp.get("citations", []):
         st.markdown(
             f"- **[{c['arxiv_id']}] p.{c['page']}** — "
             f"[{c['title']}]({c['pdf_url']})"
         )
 
     cols = st.columns(3)
-    cols[0].metric("Provider", resp["provider"])
-    cols[1].metric("Model", resp["model"])
-    cols[2].metric("Context chunks", resp["n_context_chunks"])
+    cols[0].metric("Provider", resp.get("provider", "?"))
+    cols[1].metric("Model", resp.get("model", "?"))
+    cols[2].metric("Context chunks", resp.get("n_context_chunks", 0))
 
     if show_retrieval:
         with st.spinner("Fetching raw retrieval..."):
