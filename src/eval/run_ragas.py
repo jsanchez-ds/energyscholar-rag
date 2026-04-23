@@ -99,12 +99,12 @@ def run(limit: int | None = None) -> None:
         "openrouter": "https://openrouter.ai/api/v1",
     }.get(env.llm_provider)
 
-    # Judge model — 70B gives higher TPM headroom on Groq free tier (12K vs 6K)
-    # which matters because faithfulness + context_recall send the full context.
+    # Judge model per provider — pick variants with generous rate limits,
+    # since RAGAS fires many calls per question.
     judge_model = {
         "groq": "llama-3.3-70b-versatile",
         "openai": "gpt-4o-mini",
-        "openrouter": "meta-llama/llama-3.3-70b-instruct:free",
+        "openrouter": "google/gemini-flash-1.5-8b",
     }.get(env.llm_provider, env.llm_model_override)
 
     judge_llm = LangchainLLMWrapper(
