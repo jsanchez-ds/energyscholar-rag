@@ -86,10 +86,23 @@ class LLMClient:
             from openai import OpenAI
 
             base_url = self.OPENAI_COMPATIBLE_BASE_URLS[self.provider]
-            self._client = OpenAI(api_key=self.api_key, base_url=base_url)
+            # Let the SDK retry transient 5xx / rate-limit errors a few times
+            # before our tenacity wrapper takes over.
+            self._client = OpenAI(
+                api_key=self.api_key,
+                base_url=base_url,
+                max_retries=4,
+                timeout=60.0,
+            )
 
     # ── Public API ───────────────────────────────────────────────────────────
-    @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=30))
+    # Retry policy tuned for free-tier rate limits: up to ~4 minutes total
+    # backoff so a 60-sec rolling-window throttle clears on its own.
+    @retry(
+        stop=stop_after_attempt(6),
+        wait=wait_exponential(multiplier=2, min=5, max=90),
+        reraise=True,
+    )
     def chat(self, messages: list[Message]) -> Completion:
         """Synchronous chat completion."""
         self._init_client()
