@@ -104,7 +104,7 @@ def run(limit: int | None = None) -> None:
     judge_model = {
         "groq": "llama-3.3-70b-versatile",
         "openai": "gpt-4o-mini",
-        "openrouter": "google/gemini-flash-1.5-8b",
+        "openrouter": "google/gemma-3-12b-it:free",
     }.get(env.llm_provider, env.llm_model_override)
 
     judge_llm = LangchainLLMWrapper(
