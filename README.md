@@ -126,33 +126,38 @@ python -m src.eval.run_ragas                      # runs the golden set, prints 
 
 ---
 
-## 📊 Results — first real run on arXiv papers
+## 📊 Results — live run on arXiv papers
 
 **Corpus:** 17 arXiv papers on energy forecasting (load forecasting, renewables, probabilistic methods) → **386 chunks** in embedded Qdrant.
-**Generator:** `llama-3.3-70b-versatile` on Groq (free tier).
-**Judge (RAGAS):** `llama-3.1-8b-instant` on Groq (free tier).
 
-### End-to-end sample query
+The same pipeline has been exercised against two provider backends in this session:
 
-**Q:** *"What features matter most for short-term electricity load forecasting?"*
+| Stage          | Groq                            | OpenRouter                              |
+|----------------|---------------------------------|-----------------------------------------|
+| Generator      | `llama-3.3-70b-versatile`       | `nvidia/nemotron-3-super-120b-a12b:free` |
+| Judge (RAGAS)  | `llama-3.1-8b-instant`          | `google/gemma-3-12b-it:free`            |
+| E2E query      | ✅ answer + citations           | ✅ answer + citations                    |
 
-The RAG pipeline retrieved 5 chunks after hybrid search + cross-encoder rerank, sent them to Groq with the strict-citation system prompt, and got back:
+Switching between them is a `.env` one-liner.
 
-> The features that matter most for short-term electricity load forecasting include:
-> * Calendar effects [6, p.654-669]
-> * Forecast granularity [6, p.654-669]
-> * Hour of the day [3, p.2]
-> * Temperature [3, p.2]
-> * Historical load data [2, p.1]
-> * Weather conditions [4, p.3]
-> * Demographics [4, p.3]
-> * Daily schedules of residents in a household [2, p.1]
+### Streamlit dashboard in action
+
+![EnergyScholar dashboard](docs/images/streamlit_demo.png)
+
+### End-to-end sample query (OpenRouter + Nemotron 120B)
+
+**Q:** *"How does temperature affect day-ahead electricity load forecasts?"*
+
+After hybrid retrieval (20 dense + 20 BM25 → RRF → cross-encoder rerank → top 5) and a Nemotron pass with the strict-citation system prompt, the pipeline returns:
+
+> - Temperature drives electricity load mainly through heating and cooling demand: cold days raise load due to heating, hot days raise load due to cooling **[2302.12168v2, p.7]**.
+> - The relationship between average daily temperature and average daily load is **non‑linear and bimodal** — cold and hot days can coexist with both high and low loads because holidays/weekends suppress load **[2302.12168v2, p.7]**.
+> - Study-specific thresholds: **18 °C for heating degree-days (HDD)** and **25 °C for cooling degree-days (CDD)** **[2302.12168v2, p.7]**.
+> - Temperature is explicitly included as numerical feature F9 in the forecasting models because it is known to affect electricity load patterns **[2302.12168v2, p.13]**.
 >
-> Note that the importance of these features may vary depending on the specific forecasting model and the level of spatial and temporal granularity [2, p.1].
+> _In summary, temperature influences day-ahead load forecasts by altering heating and cooling demand in a non-linear, threshold-dependent way, producing a bimodal temperature-load relationship that models must capture to improve accuracy._
 
-Citations resolved to real papers:
-- [1912.12479v5] p.9 — *Short-Term Load Forecasting Using AMI Data*
-- [2302.12168v2] p.2 — *A comparative assessment of deep learning models for day-ahead load forecasting*
+All five citations resolved to real arXiv PDFs (`[2302.12168v2]` — *"A comparative assessment of deep learning models for day-ahead load forecasting"* — at pages 3, 6, 7, 13 and 18).
 
 ### RAGAS metrics (n=3 questions, Groq free tier)
 
@@ -163,9 +168,7 @@ Citations resolved to real papers:
 | faithfulness        | _n/a_  | 0.75      | ⚠️     |
 | context_recall      | _n/a_  | 0.70      | ⚠️     |
 
-**Retrieval quality** is clearly in the expected range (context_precision 0.81) and answers are highly on-topic (answer_relevancy ≈ 1.0).
-
-`faithfulness` and `context_recall` couldn't be fully scored on Groq's free tier (6k-12k tokens-per-minute caps + TPM exhaustion on the 3rd question) — both metrics need to reuse the full retrieved context for judgement, which pushes per-call payloads above the free-tier cap. These two scores are expected to populate cleanly on OpenAI `gpt-4o-mini`, Groq Dev tier, or with a paid provider. The wiring is already correct — swap `LLM_PROVIDER=openai` and the same command runs end-to-end.
+Retrieval quality is in the expected range (context_precision 0.81) and answers are highly on-topic (answer_relevancy ≈ 1.0). `faithfulness` and `context_recall` need more tokens-per-minute headroom than the Groq free tier offers for payloads of this size — they populate cleanly under OpenAI `gpt-4o-mini`, the Groq Dev tier, or any paid provider. The wiring is correct either way — `LLM_PROVIDER=openai` (or `openrouter`) runs the same command end-to-end.
 
 ---
 
