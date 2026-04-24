@@ -1,3 +1,5 @@
+🌐 **English** · [Español](README.es.md)
+
 # 📚 EnergyScholar — RAG Assistant for Energy Forecasting Research
 
 > **Production-grade RAG pipeline on arXiv energy papers. LLM-provider-agnostic, locally hostable, public demo on HuggingFace Spaces.**
